@@ -74,6 +74,19 @@ func GetTasks(database *sql.DB, w http.ResponseWriter, r *http.Request) {
 		tasks = append(tasks, task)
 	}
 
+	var total int
+	err = database.QueryRow("SELECT COUNT(*) FROM tasks").Scan(&total)
+	if err != nil {
+		http.Error(w, "Failed to count tasks", http.StatusInternalServerError)
+		return
+	}
+
+	hasNext := (offset + len(tasks)) < total
+
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
+	w.Header().Set("X-Page", strconv.Itoa(page))
+	w.Header().Set("X-Limit", strconv.Itoa(limit))
+	w.Header().Set("X-Has-Next", strconv.FormatBool(hasNext))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(tasks)
 }
@@ -202,7 +215,6 @@ func UpdateTask(database *sql.DB, w http.ResponseWriter, r *http.Request) {
 	var updatedTask models.Task
 	err = database.QueryRow(
 		"SELECT id, title, description, completed, created_at FROM tasks WHERE id = ?",
-		updatedTask.ID,
 		id,
 	).Scan(
 		&updatedTask.ID,

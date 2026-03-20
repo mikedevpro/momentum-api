@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"momentum-api/internal/db"
 	"momentum-api/internal/routes"
@@ -14,7 +15,7 @@ func main() {
 	defer database.Close()
 
 	mux := routes.RegisterRoutes(database)
-	handler := enableCORS(mux)
+	handler := requestLogger(enableCORS(mux))
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -27,6 +28,33 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+
+		next.ServeHTTP(rec, req)
+
+		log.Printf(
+			"%s %s -> %d (%v)",
+			req.Method,
+			req.URL.Path,
+			rec.status,
+			time.Since(start),
+		)
+	})
 }
 
 func enableCORS(next http.Handler) http.Handler {
