@@ -22,18 +22,51 @@ type updateTaskRequest struct {
 }
 
 func GetTasks(database *sql.DB, w http.ResponseWriter, r *http.Request) {
-	rows, err := database.Query("SELECT id, title, description, completed FROM tasks")
+	page := 1
+	limit := 20
+
+	pageParam := r.URL.Query().Get("page")
+	limitParam := r.URL.Query().Get("limit")
+
+	if pageParam != "" {
+		parsedPage, err := strconv.Atoi(pageParam)
+		if err == nil && parsedPage > 0 {
+			page = parsedPage
+		}
+	}
+
+	if limitParam != "" {
+		parsedLimit, err := strconv.Atoi(limitParam)
+		if err == nil && parsedLimit > 0 && parsedLimit <= 100 {
+			limit = parsedLimit
+		}
+	}
+
+	offset := (page - 1) * limit
+
+	rows, err := database.Query(`
+		SELECT id, title, description, completed, created_at
+		FROM tasks
+		ORDER BY datetime(created_at) DESC, id DESC
+		LIMIT ? OFFSET ?
+	`, limit, offset)
 	if err != nil {
 		http.Error(w, "Failed to fetch tasks", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
-	tasks := make([]models.Task, 0)
+	var tasks []models.Task
 
 	for rows.Next() {
 		var task models.Task
-		err := rows.Scan(&task.ID, &task.Title, &task.Description, &task.Completed)
+		err := rows.Scan(
+			&task.ID,
+			&task.Title,
+			&task.Description,
+			&task.Completed,
+			&task.CreatedAt,
+		)
 		if err != nil {
 			http.Error(w, "Failed to parse tasks", http.StatusInternalServerError)
 			return
@@ -79,11 +112,20 @@ func CreateTask(database *sql.DB, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newTask := models.Task{
-		ID:          int(id),
-		Title:       req.Title,
-		Description: req.Description,
-		Completed:   false,
+	var newTask models.Task
+	err = database.QueryRow(
+		`SELECT id, title, description, completed, created_at FROM tasks WHERE id = ?`,
+		id,
+	).Scan(
+		&newTask.ID,
+		&newTask.Title,
+		&newTask.Description,
+		&newTask.Completed,
+		&newTask.CreatedAt,
+	)
+	if err != nil {
+		http.Error(w, "Failed to fetch created task", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -101,9 +143,9 @@ func GetTaskByID(database *sql.DB, w http.ResponseWriter, r *http.Request) {
 	var task models.Task
 
 	err = database.QueryRow(
-		"SELECT id, title, description, completed FROM tasks WHERE id = ?",
+		"SELECT id, title, description, completed, created_at FROM tasks WHERE id = ?",
 		id,
-	).Scan(&task.ID, &task.Title, &task.Description, &task.Completed)
+	).Scan(&task.ID, &task.Title, &task.Description, &task.Completed, &task.CreatedAt)
 
 	if err == sql.ErrNoRows {
 		http.Error(w, "Task not found", http.StatusNotFound)
@@ -157,11 +199,21 @@ func UpdateTask(database *sql.DB, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updatedTask := models.Task{
-		ID:          id,
-		Title:       req.Title,
-		Description: req.Description,
-		Completed:   req.Completed,
+	var updatedTask models.Task
+	err = database.QueryRow(
+		"SELECT id, title, description, completed, created_at FROM tasks WHERE id = ?",
+		updatedTask.ID,
+		id,
+	).Scan(
+		&updatedTask.ID,
+		&updatedTask.Title,
+		&updatedTask.Description,
+		&updatedTask.Completed,
+		&updatedTask.CreatedAt,
+	)
+	if err != nil {
+		http.Error(w, "Failed to fetch updated task", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
